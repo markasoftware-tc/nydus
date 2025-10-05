@@ -1181,7 +1181,7 @@ pub fn default_prefetch_batch_size() -> usize {
 }
 
 pub fn default_prefetch_all_batch_size() -> usize {
-    1024 * 1024 * 2
+    1024 * 1024 * 200
 }
 
 fn default_prefetch_threads_count() -> usize {
