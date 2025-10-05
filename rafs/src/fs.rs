@@ -69,6 +69,7 @@ pub struct Rafs {
     prefetch_all: bool,
     xattr_enabled: bool,
     user_io_batch_size: u32,
+    prefetch_all_batch_size: u64,
 
     // static inode attributes
     i_uid: u32,
@@ -104,6 +105,7 @@ impl Rafs {
             fs_prefetch: rafs_cfg.prefetch.enable,
             user_io_batch_size: rafs_cfg.user_io_batch_size as u32,
             prefetch_all: rafs_cfg.prefetch.prefetch_all,
+            prefetch_all_batch_size: rafs_cfg.prefetch.prefetch_all_batch_size as u64,
             xattr_enabled: rafs_cfg.enable_xattr,
 
             i_uid: geteuid().into(),
@@ -332,10 +334,11 @@ impl Rafs {
         let sb = self.sb.clone();
         let device = self.device.clone();
         let prefetch_all = self.prefetch_all;
+        let prefetch_all_batch_size = self.prefetch_all_batch_size;
         let root_ino = self.root_ino();
 
         let _ = std::thread::spawn(move || {
-            Self::do_prefetch(root_ino, reader, prefetch_files, prefetch_all, sb, device);
+            Self::do_prefetch(root_ino, reader, prefetch_files, prefetch_all, prefetch_all_batch_size, sb, device);
         });
     }
 
@@ -358,6 +361,7 @@ impl Rafs {
         mut reader: RafsIoReader,
         prefetch_files: Option<Vec<PathBuf>>,
         prefetch_all: bool,
+        prefetch_all_batch_size: u64,
         sb: Arc<RafsSuper>,
         device: BlobDevice,
     ) {
@@ -444,7 +448,7 @@ impl Rafs {
         if !ignore_prefetch_all && (inlay_prefetch_all || prefetch_all || startup_prefetch_all) {
             if sb.meta.is_v6() {
                 // The larger batch size, the fewer requests to registry
-                let batch_size = 1024 * 1024 * 2;
+                let batch_size = prefetch_all_batch_size;
 
                 for blob in &blob_infos {
                     let blob_size = blob.compressed_data_size();

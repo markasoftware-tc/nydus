@@ -880,6 +880,9 @@ pub struct PrefetchConfigV2 {
     /// Prefetch all data from backend.
     #[serde(default)]
     pub prefetch_all: bool,
+    /// The batch size for prefetch_all operations.
+    #[serde(default = "default_prefetch_all_batch_size")]
+    pub prefetch_all_batch_size: usize,
 }
 
 /// Configuration information for network proxy.
@@ -1177,6 +1180,10 @@ pub fn default_prefetch_batch_size() -> usize {
     1024 * 1024
 }
 
+pub fn default_prefetch_all_batch_size() -> usize {
+    1024 * 1024 * 2
+}
+
 fn default_prefetch_threads_count() -> usize {
     8
 }
@@ -1432,6 +1439,7 @@ impl From<FsPrefetchControl> for PrefetchConfigV2 {
             batch_size: v.batch_size,
             bandwidth_limit: v.bandwidth_limit,
             prefetch_all: v.prefetch_all,
+            prefetch_all_batch_size: default_prefetch_all_batch_size(),
         }
     }
 }
@@ -1459,6 +1467,7 @@ impl From<&BlobPrefetchConfig> for PrefetchConfigV2 {
             batch_size: v.batch_size,
             bandwidth_limit: v.bandwidth_limit,
             prefetch_all: true,
+            prefetch_all_batch_size: default_prefetch_all_batch_size(),
         }
     }
 }
