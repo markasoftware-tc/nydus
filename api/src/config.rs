@@ -1429,6 +1429,9 @@ struct FsPrefetchControl {
     /// Whether to prefetch all filesystem data.
     #[serde(default = "default_prefetch_all")]
     pub prefetch_all: bool,
+
+    #[serde(default = "default_prefetch_all_batch_size")]
+    pub prefetch_all_batch_size: usize,
 }
 
 impl From<FsPrefetchControl> for PrefetchConfigV2 {
@@ -1439,7 +1442,7 @@ impl From<FsPrefetchControl> for PrefetchConfigV2 {
             batch_size: v.batch_size,
             bandwidth_limit: v.bandwidth_limit,
             prefetch_all: v.prefetch_all,
-            prefetch_all_batch_size: default_prefetch_all_batch_size(),
+            prefetch_all_batch_size: v.prefetch_all_batch_size,
         }
     }
 }
