@@ -814,6 +814,7 @@ impl BlobObject for FileCacheEntry {
 
     fn fetch_range_compressed(&self, offset: u64, size: u64, prefetch: bool) -> Result<()> {
         // Assume data from tar file is always ready.
+        info!("About to fetch range from offset {}, size {}", offset, size);
         if self.is_tarfs {
             return Ok(());
         }
@@ -920,13 +921,15 @@ impl FileCacheEntry {
             let end_chunk = &chunks[end_idx];
             let (blob_offset, blob_end, blob_size) =
                 self.get_blob_range(&chunks[start_idx..=end_idx])?;
-            trace!(
-                "fetch data range {:x}-{:x} for chunk {}-{} from blob {:x}",
+            info!(
+                "fetch data range {:x}-{:x} for chunk {}-{} from blob {:x} (original requested chunk range: {}-{})",
                 blob_offset,
                 blob_end,
                 start_chunk.id(),
                 end_chunk.id(),
-                chunks[0].blob_index()
+                chunks[0].blob_index(),
+                chunks[0].id(),
+                chunks[chunks.len()-1].id(),
             );
 
             match self.read_chunks_from_backend(

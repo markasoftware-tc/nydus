@@ -272,7 +272,7 @@ pub trait BlobCache: Send + Sync {
             )));
         }
         let duration = Instant::now().duration_since(start).as_millis();
-        debug!(
+        info!(
             "read_chunks_from_backend: {} {} {} bytes at {}, duration {}ms",
             std::thread::current().name().unwrap_or_default(),
             if prefetch { "prefetch" } else { "fetch" },
