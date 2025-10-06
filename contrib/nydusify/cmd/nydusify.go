@@ -1430,6 +1430,18 @@ func main() {
 					Usage:    "The external directory (for example mountpoint) in container that need to be committed",
 					EnvVars:  []string{"WITH_PATH"},
 				},
+				&cli.StringFlag{
+					Name:    "chunk-size",
+					Value:   "",
+					Usage:   "size of nydus image data chunk, must be power of two and between 0x1000-0x10000000, [default: 0x100000]",
+					EnvVars: []string{"FS_CHUNK_SIZE"},
+				},
+				&cli.StringFlag{
+					Name:    "batch-size",
+					Value:   "",
+					Usage:   "size of batch data chunks, must be power of two, between 0x1000-0x1000000 or zero, [default: 0]",
+					EnvVars: []string{"BATCH_SIZE"},
+				},
 			},
 			Action: func(c *cli.Context) error {
 				setupLogLevel(c)
@@ -1462,6 +1474,8 @@ func main() {
 					SourceInsecure:    c.Bool("source-insecure"),
 					TargetInsecure:    c.Bool("target-insecure"),
 					MaximumTimes:      c.Int("maximum-times"),
+					ChunkSize:         c.String("chunk-size"),
+					BatchSize:         c.String("batch-size"),
 					WithPaths:         withPaths,
 				}
 				cm, err := committer.NewCommitter(opt)

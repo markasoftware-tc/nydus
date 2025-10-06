@@ -54,14 +54,56 @@ type Opt struct {
 	MaximumTimes   int
 	FsVersion      string
 	Compressor     string
+	ChunkSize      string
+	BatchSize      string
 
 	WithPaths    []string
+}
+
+// NydusImageCreateOptions bundles options passed to nydus-image create
+type NydusImageCreateOptions struct {
+	FsVersion      string
+	Compressor     string
+	ChunkSize      string
+	BatchSize      string
 }
 
 type Committer struct {
 	workDir string
 	builder string
 	manager *Manager
+}
+
+// buildNydusImageCreateArgs builds the common arguments for nydus-image create command
+func (cm *Committer) buildNydusImageCreateArgs(options NydusImageCreateOptions, blobPath, bootstrapPath, parentBootstrap, sourceDir string, whiteoutSpec bool) []string {
+	args := []string{"create"}
+
+	if whiteoutSpec {
+		args = append(args, "--whiteout-spec", "overlayfs")
+	}
+
+	args = append(args, "--fs-version", options.FsVersion)
+	args = append(args, "--compressor", options.Compressor)
+
+	if options.ChunkSize != "" {
+		args = append(args, "--chunk-size", options.ChunkSize)
+	}
+
+	if options.BatchSize != "" {
+		args = append(args, "--batch-size", options.BatchSize)
+	}
+
+	args = append(args, "--blob", blobPath)
+	args = append(args, "--bootstrap", bootstrapPath)
+	args = append(args, "--parent-bootstrap", parentBootstrap)
+
+	if whiteoutSpec {
+		args = append(args, "--external-blob", "/dev/null")
+	}
+
+	args = append(args, sourceDir)
+
+	return args
 }
 
 // NewCommitter creates a new Committer instance
@@ -140,7 +182,13 @@ func (cm *Committer) Commit(ctx context.Context, opt Opt) error {
 		var upperBlobDigest *digest.Digest
 		var upperBootstrapPath string
 		if err := withRetry(func() error {
-			upperBlobDigest, upperBootstrapPath, err = cm.commitUpperByDiff(ctx, mountList.Add, opt.WithPaths, inspect.UpperDir, "blob-upper", opt.FsVersion, opt.Compressor, "bootstrap-base")
+			options := NydusImageCreateOptions{
+				FsVersion:  opt.FsVersion,
+				Compressor: opt.Compressor,
+				ChunkSize:  opt.ChunkSize,
+				BatchSize:  opt.BatchSize,
+			}
+			upperBlobDigest, upperBootstrapPath, err = cm.commitUpperByDiff(ctx, mountList.Add, opt.WithPaths, inspect.UpperDir, "blob-upper", options, "bootstrap-base")
 			return err
 		}, 3); err != nil {
 			return errors.Wrap(err, "commit upper")
@@ -173,7 +221,13 @@ func (cm *Committer) Commit(ctx context.Context, opt Opt) error {
 				}
 
 				if err := withRetry(func() error {
-					mountBlobDigest, mountBootstrapPath, err = cm.commitMountByNSEnter(ctx, inspect.Pid, withPath, name, opt.FsVersion, opt.Compressor, parentBootstrap)
+					options := NydusImageCreateOptions{
+						FsVersion:  opt.FsVersion,
+						Compressor: opt.Compressor,
+						ChunkSize:  opt.ChunkSize,
+						BatchSize:  opt.BatchSize,
+					}
+					mountBlobDigest, mountBootstrapPath, err = cm.commitMountByNSEnter(ctx, inspect.Pid, withPath, name, options, parentBootstrap)
 					return err
 				}, 3); err != nil {
 					return errors.Wrap(err, "commit mount")
@@ -219,7 +273,13 @@ func (cm *Committer) Commit(ctx context.Context, opt Opt) error {
 							}
 						}
 						appendedMutex.Unlock()
-						mountBlobDigest, mountBootstrapPath, err = cm.commitMountByNSEnter(ctx, inspect.Pid, mountPath, name, opt.FsVersion, opt.Compressor, parentBootstrap)
+						options := NydusImageCreateOptions{
+							FsVersion:  opt.FsVersion,
+							Compressor: opt.Compressor,
+							ChunkSize:  opt.ChunkSize,
+							BatchSize:  opt.BatchSize,
+						}
+						mountBlobDigest, mountBootstrapPath, err = cm.commitMountByNSEnter(ctx, inspect.Pid, mountPath, name, options, parentBootstrap)
 						return err
 					}, 3); err != nil {
 						return errors.Wrap(err, "commit appended mount")
@@ -353,7 +413,7 @@ func (cm *Committer) pullBootstrap(ctx context.Context, ref, bootstrapName strin
 	return parsed.NydusImage, committedLayers, nil
 }
 
-func (cm *Committer) commitUpperByDiff(ctx context.Context, appendMount func(path string), withPaths []string, upperDir, blobName, fsversion, compressor, parentBootstrap string) (*digest.Digest, string, error) {
+func (cm *Committer) commitUpperByDiff(ctx context.Context, appendMount func(path string), withPaths []string, upperDir, blobName string, options NydusImageCreateOptions, parentBootstrap string) (*digest.Digest, string, error) {
 	logrus.Infof("committing upper")
 	start := time.Now()
 
@@ -388,18 +448,7 @@ func (cm *Committer) commitUpperByDiff(ctx context.Context, appendMount func(pat
 	}()
 
 	// Use nydus-image create directly on the overlay filesystem, writing to FIFO
-	args := []string{
-		"create",
-		"--whiteout-spec", "overlayfs",
-		"--fs-version", fsversion,
-		"--compressor", compressor,
-		"--blob", blobFifoPath,
-		"--bootstrap", bootstrapPath,
-		"--parent-bootstrap", filepath.Join(cm.workDir, parentBootstrap),
-		// TODO investigate if we need this
-		"--external-blob", "/dev/null",
-		upperDir,
-	}
+	args := cm.buildNydusImageCreateArgs(options, blobFifoPath, bootstrapPath, filepath.Join(cm.workDir, parentBootstrap), upperDir, true)
 
 	logrus.Debugf("executing: %s %s", cm.builder, strings.Join(args, " "))
 	cmd := exec.CommandContext(ctx, cm.builder, args...)
@@ -758,7 +807,7 @@ func (cm *Committer) makeDesc(x interface{}, oldDesc ocispec.Descriptor) ([]byte
 	return data, &newDesc, nil
 }
 
-func (cm *Committer) commitMountByNSEnter(ctx context.Context, containerPid int, sourceDir, name, fsversion, compressor, parentBootstrap string) (*digest.Digest, string, error) {
+func (cm *Committer) commitMountByNSEnter(ctx context.Context, containerPid int, sourceDir, name string, options NydusImageCreateOptions, parentBootstrap string) (*digest.Digest, string, error) {
 	logrus.Infof("committing mount: %s", sourceDir)
 	start := time.Now()
 
@@ -824,15 +873,7 @@ func (cm *Committer) commitMountByNSEnter(ctx context.Context, containerPid int,
 	}
 
 	// Use nydus-image create on extracted directory, writing to FIFO
-	args := []string{
-		"create",
-		"--fs-version", fsversion,
-		"--compressor", compressor,
-		"--blob", blobFifoPath,
-		"--bootstrap", bootstrapPath,
-		"--parent-bootstrap", parentBootstrap,
-		extractDir,
-	}
+	args := cm.buildNydusImageCreateArgs(options, blobFifoPath, bootstrapPath, parentBootstrap, extractDir, false)
 
 	logrus.Debugf("executing: %s %s", cm.builder, strings.Join(args, " "))
 	cmd := exec.CommandContext(ctx, cm.builder, args...)
